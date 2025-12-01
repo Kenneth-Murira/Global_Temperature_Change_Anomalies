@@ -1,0 +1,267 @@
+
+---
+title: "Global Temperature Change Analysis (1880–2024)"
+author: "Kenneth Murira"
+date: "2025-11-10"
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    toc_depth: 2
+    latex_engine: xelatex
+    highlight: tango
+font size: 11pt
+geometry: margin=1in
+mainfont: Times New Roman
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  echo = TRUE
+)
+
+```
+
+
+```{r setup2, include=FALSE}
+# Load libraries
+library(tidyverse)
+library(zoo)
+library(ggplot2)
+```
+
+
+# Abstract
+This study analyzes NASA GISS global temperature data (1880-2024). It identifies a strong warming trend, especially since 1980, with the mean global anomaly rising approximately 0.82°C per century.
+
+# Data Loading and Preparation
+```{r}
+climate <- read.csv("GLB.Ts+dSST.csv", skip = 1)
+```
+## Data Preparation
+```{r}
+df <- climate %>%
+      rename(Annual = J.D) %>%
+      select(Year, Annual, Jan:Dec) %>%
+      mutate(across(Jan:Dec, ~ as.numeric(.))) %>%
+      pivot_longer(cols = Jan:Dec, names_to = "Month", values_to = "Anomaly") %>%
+      mutate(Month = factor(Month, levels = month.abb))
+```
+```{r}
+annual_df <- climate %>%
+      select(Year, Annual = J.D) %>%
+      mutate(Annual = as.numeric(Annual))
+```
+
+# Linear Regression Analysis
+A linear model was fitted to determine the overall warming rate since 1880.
+```{r}
+model <- lm(Annual ~ Year, data = annual_df)
+summary(model)
+```
+The regression output shows a significant positive coefficient for Year (β = 0.00816, p < .001), suggesting a consistent upward warming trend over the study period. This indicates that the global mean temperature anomaly increased by approximately 0.008°C per year (or 0.82°C per century).
+
+# Anomaly Distribution and Extremes
+```{r}
+annual_stats <- climate %>%
+       select(Year, Annual = J.D) %>%
+       mutate(Annual = as.numeric(Annual)) %>%
+       summarize(
+             mean_anomaly = mean(Annual, na.rm = TRUE),
+             median_anomaly = median(Annual, na.rm = TRUE),
+             sd_anomaly = sd(Annual, na.rm = TRUE),
+             min_anomaly = min(Annual, na.rm = TRUE),
+             max_anomaly = max(Annual, na.rm = TRUE),
+             coldest_year = Year[which.min(Annual)],
+             hottest_year = Year[which.max(Annual)])
+annual_stats
+```
+The average temperature anomaly over the record was approximately 0.07°C,
+with the hottest year recorded in 2024 and the coldest around 1909.
+
+## Decadal Warming Comparison
+```{r}
+decade_stats <- annual_df %>%
+       mutate(decade = case_when(
+                   Year >= 1950 & Year <= 1959 ~ "1950s",
+                   Year >= 1980 & Year <= 1989 ~ "1980s",
+                   Year >= 2010 & Year <= 2019 ~ "2010s",
+                   TRUE ~ NA_character_)) %>%
+       filter(!is.na(decade)) %>%
+       group_by(decade) %>%
+       summarize(
+             avg_anomaly = mean(Annual, na.rm = TRUE),
+             .groups = "drop")
+decade_stats
+```
+### Total Warming Difference
+```{r}
+warming_difference <- annual_df %>%
+  drop_na(Annual) %>%
+  summarize(
+    first_year = min(Year),
+    last_year = max(Year),
+    anomaly_start = Annual[Year == min(Year)],
+    anomaly_end = Annual[Year == max(Year)],
+    total_warming = anomaly_end - anomaly_start)
+
+warming_difference
+```
+This represents a total warming of approximately 1.45°C over the 145-year period. These findings clearly demonstrate a strong long-term warming trend, with most of the temperature increase occurring in recent decades. The magnitude of warming is consistent with scientific assessments linking increased greenhouse gas emissions to accelerated climate change, contributing to increasingly frequent and intense climate extremes globally.
+
+## Seasonal Variation
+```{r}
+seasonal_df <- climate %>%
+   select(Year, DJF, MAM, JJA, SON) %>%
+   mutate(across(DJF:SON, as.numeric)) %>%
+   pivot_longer(cols = DJF:SON,
+                      names_to = "Season",
+                      values_to = "Anomaly") %>%
+   filter(!is.na(Anomaly))
+
+seasonal_trends <- seasonal_df %>%
+   group_by(Season) %>%
+   summarize(
+         slope = coef(lm(Anomaly ~ Year)) [2],
+         .groups = "drop") %>%
+   arrange(desc(slope))
+seasonal_trends
+```
+Results indicate that all seasons have experienced statistically upward warming trends over time, though at slightly different rates. Global warming is happening year-round, but winter months (DJF) are warming fastest compared to the rest of the seasons.
+
+# Visualizations
+## Time Series plot of annual anomalies
+```{r}
+annual_anomaly_df <- climate %>%
+   select(Year, Annual = J.D) %>%
+   mutate(Annual = as.numeric(Annual)) %>%
+   filter(!is.na(Annual))
+
+
+ggplot(annual_df, aes(x = Year, y = Annual)) +
+  geom_line(color = "#1f77b4", linewidth = 1) +  
+  geom_smooth(method = "lm", se = FALSE, color = "#d62728", linewidth = 1.2, linetype = "longdash") +  
+  labs(
+    title = "Global Surface Temperature Anomalies (1880–2024)",
+    subtitle = "Annual mean anomalies relative to the long-term climate baseline",
+    x = "Year",
+    y = "Temperature Anomaly (°C)",
+    caption = "Data Source: NASA GISS") +
+  scale_x_continuous(limits = c(1880, 2024), breaks = seq(1880, 2024, by = 20)) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(
+      color = "#1f77b4",
+      face = "bold",
+      size = 15,
+      hjust = 0.5),
+    plot.subtitle = element_text(
+      color = "#d62728",
+      size = 12,
+      hjust = 0.5),
+    axis.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_line(color = "gray85"),
+    panel.grid.major.y = element_line(color = "gray90"),
+    plot.caption = element_text(size = 10, face = "italic", hjust = 1))
+```
+The plot supports the conclusion that the global surface temperature has increased substantially over the last century and a half, with the rate of warming appearing to increase rapidly since 1980. The plot serves as a powerful visualization of ongoing global warming.
+
+## Smoothed Trend Plot- 10 Year Rolling Average
+```{r}
+annual_anomaly_df <- annual_anomaly_df %>%
+       mutate(RollingMean10 = rollmean(Annual, k = 10, fill = NA, align = "right"))
+
+
+ggplot(annual_anomaly_df, aes(x = Year)) +
+       geom_line(aes(y = Annual),
+                                 color = "gray40", alpha = 0.7, linewidth = 0.8) +
+       geom_line(aes(y = RollingMean10),
+                                 color = "#d62728", linewidth = 1.4, lineend = "round") +
+       scale_x_continuous(limits = c(1880, 2024),
+                                                   breaks = seq(1880, 2024, by = 20)) +
+       labs(
+             title = "Smoothed Global Temperature Trend (1880–2024)",
+             subtitle = "10-Year Rolling Average of Annual Temperature Anomalies",
+             x = "Year",
+             y = "Temperature Anomaly (°C)",
+             caption = "Data Source: NASA GISS") +
+       theme_minimal(base_size = 13) +
+       theme(
+             plot.title = element_text(color = "#1f77b4", face = "bold", size = 15, hjust = 0.5),
+             plot.subtitle = element_text(color = "#d62728", size = 12, hjust = 0.5),
+             axis.title = element_text(face = "bold"),
+             panel.grid.minor = element_blank(),
+             panel.grid.major.x = element_line(color = "gray90"),
+             panel.grid.major.y = element_line(color = "gray85"),
+             plot.caption = element_text(size = 10, face = "italic", hjust = 1))
+
+```
+The 10-year rolling average of global annual temperature anomalies shows a clear long-term warming trend from 1880 to 2024, with values rising from approximately -0.2 °C in the late 19th century to above 1.0 °C in recent years. 
+
+## Histogram + density overlay
+```{r}
+annual_df1 <- climate %>%
+   select(Year, Annual = J.D) %>%
+   mutate(Annual = as.numeric(Annual)) %>%
+   filter(!is.na(Annual))
+## Calculate mean anomaly (average mean for all years)
+mean_anomaly <- mean(annual_df1$Annual, na.rm = TRUE)
+
+ggplot(annual_df1, aes(x = Annual)) +
+       geom_histogram(
+             aes(y = ..density..),
+             bins = 25,
+             fill = "red",
+             color = "black",
+             alpha = 0.85) +
+       geom_density(linewidth = 1.3, color = "black") +
+       geom_vline(
+             xintercept = mean_anomaly,
+             color = "white",
+             linetype = "dashed",
+             linewidth = 1.2) +
+       annotate(
+             "text",
+             x = mean_anomaly + 0.1,
+             y = max(density(annual_df1$Annual)$y) * 0.85,
+             label = paste0("Mean: ", round(mean_anomaly, 2), "°C"),
+             color = "black",
+             fontface = "bold") +
+       labs(
+             title = "Annual Temperature Anomalies",
+             subtitle = "Histogram + density overlay (1880–2024)",
+             x = "Temperature Anomaly (°C)",
+             y = "Density") +
+       theme_classic(base_size = 14) +
+       theme(plot.title = element_text(face = "bold"))
+```
+The histogram and density curve show that the distribution of global temperature anomalies is right-skewed, indicating a strong shift toward warmer-than-baseline temperatures in the modern era. 
+
+## Heat map of Monthly Anomalies
+```{r}
+ggplot(df, aes(x = Month, y = Year, fill = Anomaly)) +
+       geom_tile() +
+       scale_fill_gradientn(
+             colors = c("darkblue", "blue", "white", "orange", "red"),
+             name = "Anomaly (°C)") +
+       labs(
+             title = "Heatmap of Monthly Global Temperature Anomalies (1880–2024)",
+             subtitle = "Deep red shading in recent decades highlights persistent warming",
+             x = "Month",
+             y = "Year",
+             caption = "Source: NASA GISS") +
+       theme_minimal(base_size = 12) +
+       theme(
+             panel.grid = element_blank(),
+             plot.title = element_text(face = "bold"),
+             axis.text.x = element_text(angle = 45, hjust = 1))
+```
+The heat map shows how nearly every month in recent decades has shifted toward red, reflecting increasing global warmth.
+
+# Conclusion
+The statistical findings and the visual plots—which show the temperature distribution shifting drastically towards hotter values—align with a strong scientific consensus: Global temperatures are rising rapidly, are being driven to unprecedented levels in the modern era, and the acceleration of this warming is an established fact.
+
+
+
